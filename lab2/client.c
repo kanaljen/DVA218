@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 
 #define PORT 5555
@@ -24,11 +25,11 @@
 void initSocketAddress(struct sockaddr_in *name, char *hostName, unsigned short int port) {
   struct hostent *hostInfo; /* Contains info about the host */
   /* Socket address format set to AF_INET for Internet use. */
-  name->sin_family = AF_INET;     
+  name->sin_family = AF_INET;
   /* Set port number. The function htons converts from host byte order to network byte order.*/
-  name->sin_port = htons(port);   
+  name->sin_port = htons(port);
   /* Get info about host. */
-  hostInfo = gethostbyname(hostName); 
+  hostInfo = gethostbyname(hostName);
   if(hostInfo == NULL) {
     fprintf(stderr, "initSocketAddress - Unknown host %s\n",hostName);
     exit(EXIT_FAILURE);
@@ -37,12 +38,12 @@ void initSocketAddress(struct sockaddr_in *name, char *hostName, unsigned short 
   name->sin_addr = *(struct in_addr *)hostInfo->h_addr;
 }
 /* writeMessage
- * Writes the string message to the file (socket) 
+ * Writes the string message to the file (socket)
  * denoted by fileDescriptor.
  */
 void writeMessage(int fileDescriptor, char *message) {
   int nOfBytes;
-  
+
   nOfBytes = write(fileDescriptor, message, strlen(message) + 1);
   if(nOfBytes < 0) {
     perror("writeMessage - Could not write data\n");
@@ -78,6 +79,9 @@ int main(int argc, char *argv[]) {
     perror("Could not connect to server\n");
     exit(EXIT_FAILURE);
   }
+  else{
+    printf("\nConnected to %s on port %d\n",inet_ntoa(serverName.sin_addr),ntohs(serverName.sin_port));
+  }
   /* Send data to the server */
   printf("\nType something and press [RETURN] to send it to the server.\n");
   printf("Type 'quit' to nuke this program.\n");
@@ -88,7 +92,7 @@ int main(int argc, char *argv[]) {
     messageString[messageLength - 1] = '\0';
     if(strncmp(messageString,"quit\n",messageLength) != 0)
       writeMessage(sock, messageString);
-    else {  
+    else {
       close(sock);
       exit(EXIT_SUCCESS);
     }
