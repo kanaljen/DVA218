@@ -145,12 +145,14 @@ int newConnection(void){
     }
     
     //Print info about connection in server
-    printf("<new incoming connection>\n");
+    printf ("<incoming connection from %s:%d>\n",
+             inet_ntoa(clientName.sin_addr),
+             ntohs(clientName.sin_port));
     
     //Check to see if blocked adress
     printf("approval pending...\n");
     
-    if(strcmp(inet_ntoa(clientName.sin_addr),"127.0.0.2")){
+    if(strcmp(inet_ntoa(clientName.sin_addr),"127.0.0.2")){ //Changes to filter
         
         FD_SET(clientSocket, &activeFdSet); //Add clientsocket to the set
         
@@ -160,9 +162,7 @@ int newConnection(void){
                ntohs(clientName.sin_port), clientSocket);
         
         //Send ack on connection to client
-        sprintf (buffer, "<[SERVER]: connection from %s:%d you are on socket [%d]\n>",
-                 inet_ntoa(clientName.sin_addr),
-                 ntohs(clientName.sin_port), clientSocket);
+        sprintf (buffer, "[SERVER]: You are connected on socket [%d]",clientSocket);
         writeMessage(clientSocket,buffer);
         
         return clientSocket;
@@ -175,7 +175,7 @@ int newConnection(void){
                ntohs(clientName.sin_port));
         
         //Send connect refusal to client
-        sprintf (buffer, "<[SERVER]: Connections from %s:%d not allowed>",
+        sprintf (buffer, "[SERVER]: connection from %s:%d refused",
                  inet_ntoa(clientName.sin_addr),
                  ntohs(clientName.sin_port));
         writeMessage(clientSocket,buffer);
@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
                     clientSocket = newConnection();
                     
                     //Brodcast connection to other clients
-                    sprintf(sendBuffer,"<[%d]: connected to the server>",clientSocket); //Add fluff to msg
+                    sprintf(sendBuffer,"[SERVER]: new client on socket [%d] connected",clientSocket); //Add fluff to msg
                     FD_ZERO(&excludeFdSet); //Zero-out exclude set
                     FD_SET(masterSocket, &excludeFdSet); //Add masterSocket to exclude set
                     FD_SET(clientSocket, &excludeFdSet); //Add new client to exclude set
@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
                 else {
                     /* Data arriving on an already connected socket */
                     if(readMessageFromClient(i) < 0) {
-                        sprintf(sendBuffer,"<[%d]: disconnected from the server>",i); //Add fluff to msg
+                        sprintf(sendBuffer,"[SERVER]: client on socket [%d] disconnected",i); //Add fluff to msg
                         printf("%s\n",sendBuffer);
                         close(i); //Close socket
                         FD_CLR(i, &activeFdSet); //Remove socket from set
