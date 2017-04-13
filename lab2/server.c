@@ -77,6 +77,7 @@ void writeMessage(int fileDescriptor, char *message) {
  * denoted by the file descriptor 'fileDescriptor'.
  */
 int readMessageFromClient(int fileDescriptor) {
+    
     char buffer[MAXMSG],sendBuffer[MAXMSG];
     int nOfBytes;
     fd_set excludeFdSet, includeFdSet;
@@ -127,17 +128,70 @@ void broadcast(fd_set* exclude, fd_set* include,char* messege){
     }
 };
 
-void acceptConnection(struct sockaddr_in *clientName){
+int newConnection(void){
     
+    socklen_t size;
+    int clientSocket;
+    struct sockaddr_in clientName;
+    char buffer[MAXMSG];
+    
+    size = sizeof(struct sockaddr_in);
+    
+    /* Accept the connection request from a client. */
+    clientSocket = accept(masterSocket, (struct sockaddr *)&clientName, (socklen_t *)&size);
+    if(clientSocket < 0) {
+        perror("Could not accept connection\n");
+        return -1;
+    }
+    
+    //Print info about connection in server
+    printf("<new incoming connection>\n");
+    
+    //Check to see if blocked adress
+    printf("approval pending...\n");
+    
+    if(strcmp(inet_ntoa(clientName.sin_addr),"127.0.0.2")){
+        
+        FD_SET(clientSocket, &activeFdSet); //Add clientsocket to the set
+        
+        //Ack the server
+        printf("<connection from %s:%d accepted on socket %d>\n",
+               inet_ntoa(clientName.sin_addr),
+               ntohs(clientName.sin_port), clientSocket);
+        
+        //Send ack on connection to client
+        sprintf (buffer, "<[SERVER]: connection from %s:%d you are on socket [%d]\n>",
+                 inet_ntoa(clientName.sin_addr),
+                 ntohs(clientName.sin_port), clientSocket);
+        writeMessage(clientSocket,buffer);
+        
+        return clientSocket;
+    }
+    else{
+     
+        //Ack the server
+        printf("<connection from %s:%d refused>\n",
+               inet_ntoa(clientName.sin_addr),
+               ntohs(clientName.sin_port));
+        
+        //Send connect refusal to client
+        sprintf (buffer, "<[SERVER]: Connections from %s:%d not allowed>",
+                 inet_ntoa(clientName.sin_addr),
+                 ntohs(clientName.sin_port));
+        writeMessage(clientSocket,buffer);
+        
+        close(clientSocket);
+        
+        return 0;
+    }
 };
 
 int main(int argc, char *argv[]) {
 
-    int clientSocket;
-    int i;
-    char buffer[MAXMSG], sendBuffer[MAXMSG];
-    struct sockaddr_in clientName;
-    socklen_t size;
+    int i, clientSocket;
+    char sendBuffer[MAXMSG];
+
+
     fd_set excludeFdSet,readFdSet;
     
     
@@ -168,27 +222,9 @@ int main(int argc, char *argv[]) {
         for(i = 0; i < FD_SETSIZE; ++i)
             if(FD_ISSET(i, &readFdSet) != 0) {
                 if(i == masterSocket) {
+                    
                     /* Connection request on master socket */
-                    size = sizeof(struct sockaddr_in);
-                    /* Accept the connection request from a client. */
-                    clientSocket = accept(masterSocket, (struct sockaddr *)&clientName, (socklen_t *)&size);
-                    if(clientSocket < 0) {
-                        perror("Could not accept connection\n");
-                        exit(EXIT_FAILURE);
-                    }
-                    //Print info about connection in server
-                    printf("<connection from %s:%d on socket %d>\n",
-                           inet_ntoa(clientName.sin_addr), 
-                           ntohs(clientName.sin_port),
-                           clientSocket);
-                    
-                    FD_SET(clientSocket, &activeFdSet); //Add clientsocket to the set
-                    
-                    //Send ack on connection to client
-                    sprintf (buffer, "<[SERVER]: connected to %s:%d, you are on socket [%d]>",
-                             inet_ntoa(clientName.sin_addr),
-                             ntohs(clientName.sin_port), clientSocket);
-                    writeMessage(clientSocket,buffer);
+                    clientSocket = newConnection();
                     
                     //Brodcast connection to other clients
                     sprintf(sendBuffer,"<[%d]: connected to the server>",clientSocket); //Add fluff to msg
@@ -196,6 +232,7 @@ int main(int argc, char *argv[]) {
                     FD_SET(masterSocket, &excludeFdSet); //Add masterSocket to exclude set
                     FD_SET(clientSocket, &excludeFdSet); //Add new client to exclude set
                     broadcast(&excludeFdSet,&activeFdSet,sendBuffer);
+                    
                 }
                 else {
                     /* Data arriving on an already connected socket */
