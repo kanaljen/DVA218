@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
                     clientSocket = newConnection();
                     
                     //Brodcast connection to other clients
-                    sprintf(sendBuffer,"[SERVER]: new client on socket [%d] connected",clientSocket); //Add fluff to msg
+                    sprintf(sendBuffer,"[SERVER]: new client connected on socket [%d]",clientSocket); //Add fluff to msg
                     FD_ZERO(&excludeFdSet); //Zero-out exclude set
                     FD_SET(masterSocket, &excludeFdSet); //Add masterSocket to exclude set
                     FD_SET(clientSocket, &excludeFdSet); //Add new client to exclude set
@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
                 else {
                     /* Data arriving on an already connected socket */
                     if(readMessageFromClient(i) < 0) {
-                        sprintf(sendBuffer,"[SERVER]: client on socket [%d] disconnected",i); //Add fluff to msg
+                        sprintf(sendBuffer,"[SERVER]: client disconnected from socket [%d]",i); //Add fluff to msg
                         printf("%s\n",sendBuffer);
                         close(i); //Close socket
                         FD_CLR(i, &activeFdSet); //Remove socket from set

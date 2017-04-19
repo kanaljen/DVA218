@@ -120,6 +120,7 @@ int main(int argc, char *argv[]) {
         sleep(1);
     }
     
+    //Thread for reading messeges from the server
     pthread_create(&listenThread, NULL, listenToServer, &sock);
     
     /* Send data to the server */
