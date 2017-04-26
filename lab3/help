@@ -1,0 +1,9 @@
+valid commands:
+help - print this help file
+clear - to clear the screen
+open - open a new socket
+close - close an open socket
+send - open send packet menu
+set - set windowsize
+alive - send alive packet
+quit - terminate process

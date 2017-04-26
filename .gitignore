@@ -31,3 +31,6 @@
 # Debug files
 *.dSYM/
 *.su
+
+lab3/client
+lab3/server
