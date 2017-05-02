@@ -82,10 +82,13 @@ int main(int argc, const char * argv[]) {
         
         // If the socket is in the read set
         for(i = sock;i < FD_SETSIZE;i++){
-            
-            if(FD_ISSET(i,&readFdSet)){
+            if(FD_ISSET(i,&fullFdSet)){
                 
-                signal = readSignal(i); //Store messege and remotehost
+                if(FD_ISSET(i,&readFdSet)){
+                    
+                    signal = readSignal(i); //Store messege and remotehost
+                    
+                }
                 
                 
                 switch (stateDatabase[i]) {
@@ -94,7 +97,8 @@ int main(int argc, const char * argv[]) {
                         if (signal == SYN){
                             
                             clientSock = makeSocket();
-                            printf("\n[%d]Sending SYNACK!\n",clientSock);
+                            printf("new client [%d]\n",clientSock);
+                            printf("[%d] Sending SYNACK!\n",clientSock);
                             sendSignal(clientSock,SYN + ACK);
                             FD_SET(clientSock,&fullFdSet);
                             waitTimes[clientSock] = 0;
@@ -102,14 +106,14 @@ int main(int argc, const char * argv[]) {
                             break;
                         }
                         else {
-                            printf(".");
+                            printf("[%d] waiting\n",i);
                             break;
                             
                         }
                         
                     case WAITING + SYN + ACK:
                         if (signal == SYN + ACK){
-                            printf("[%d]Sending ACK!\n",i);
+                            printf("[%d] Sending ACK!\n",i);
                             sendSignal(i,ACK);
                             stateDatabase[i] = ESTABLISHED;
                             printf("[%d] ESTABLISHED",i);
@@ -125,17 +129,27 @@ int main(int argc, const char * argv[]) {
                         
                     case WAITING + ACK:
                         waitTimes[i]++;
-                        if(waitTimes[i] > NWAITS){
+                        if(waitTimes[i] >= NWAITS){
+                            printf("[%d] connection from client lost\n",i);
                             close(i);
                             FD_CLR(i,&fullFdSet);
                             break;
                         }
                         else if (signal == ACK){
-                            printf("[%d] ESTABLISHED",i);
+                            printf("[%d] ESTABLISHED\n",i);
                             stateDatabase[i] = ESTABLISHED;
+                            
                             break;
                         }
-                        else break;
+                        else{
+                            printf("[%d] Sending new SYNACK!\n",i);
+                            sendSignal(i, SYN + ACK);
+                            break;
+                        }
+                        
+                    case ESTABLISHED:
+                        printf("[%d] *\n",i);
+                        break;
                         
                     default:
                         printf("NO STATE: %d\n",stateDatabase[i]);
