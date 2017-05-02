@@ -148,6 +148,7 @@ int main(int argc, const char * argv[]) {
                         }
                         
                     case ESTABLISHED:
+                        FD_SET(STDIN_FILENO,&fullFdSet);
                         printf("[%d] *\n",i);
                         break;
                         

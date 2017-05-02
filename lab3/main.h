@@ -24,6 +24,8 @@
 #define SYN      4
 #define FIN      8
 
+/* Define mashine states */
+
 #define NOSTATE         0
 #define WAITING         100
 #define ESTABLISHED     200
@@ -36,7 +38,7 @@ struct pkt{
     int flg;
     int seq;
     int wsz;
-    char data[512];
+    char data;
     int chksum;
 };
 
