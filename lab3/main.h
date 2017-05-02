@@ -28,8 +28,9 @@
 #define WAITING         100
 #define ESTABLISHED     200
 
-#define NWAITS  3
-#define TIMEOUT 2
+#define NWAITS      3
+#define TIMEOUT     2
+#define SENDDELAY   1
 
 struct pkt{
     int flg;
@@ -42,8 +43,8 @@ struct pkt{
 int makeSocket(void);
 int connectTo(char* server);
 int bindSocket(int sock);
-int readSignal();
-int sendSignal(int signal);
+int readSignal(int socket);
+int sendSignal(int socket,int signal);
 int waitFor(int signal);
 int signalRecived(int signal);
 

@@ -18,22 +18,26 @@
 #include "main.h"
 
 struct sockaddr_in localhost, remotehost;
-int sock;
+int sock,socktemp;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
 
 int main(int argc, const char * argv[]) {
     
-    int signal = NOSIG, state = NOSTATE;
-    int waitTimes = 0;
+    int signal = NOSIG, i;
+    int stateDatabase[FD_SETSIZE];
+    int waitTimes[FD_SETSIZE];
     char buffer[512];
     struct timeval tv;
     tv.tv_sec = TIMEOUT;
+    int clientSock;
     
     slen=sizeof(remotehost);
     
     sock = makeSocket();
+    
+    printf("sock: %d\nsocktemp: %d\n",sock,socktemp);
     
     // FD stuff
     FD_ZERO(&fullFdSet);
@@ -53,23 +57,23 @@ int main(int argc, const char * argv[]) {
         if (buffer[ln] == '\n') buffer[ln] = '\0';
         mode = atoi(buffer);
         if(mode != SERVER && mode != CLIENT)printf("> invalid mode\n");
-    
+        
     }
     
     if(mode == SERVER){
         bindSocket(sock);
-        state = WAITING + SYN;
+        stateDatabase[sock] = WAITING + SYN;
     }
-    else {
+    else if(mode == CLIENT){
         connectTo(SRV_IP);
-        printf("Sending SYN!\n");
-        sendSignal(SYN);
-        state = WAITING + SYN + ACK;
+        printf("[%d]Sending SYN!\n",sock);
+        sendSignal(sock,SYN);
+        stateDatabase[sock] = WAITING + SYN + ACK;
     }
     
     FD_CLR(STDIN_FILENO,&fullFdSet);
     
-    while(state != ESTABLISHED){ /* Main connect-loop */
+    while(1){ /* Main connect-loop */
         
         readFdSet = fullFdSet;
         signal = NOSIG;
@@ -77,62 +81,69 @@ int main(int argc, const char * argv[]) {
         select(FD_SETSIZE, &readFdSet, NULL, NULL, &tv);
         
         // If the socket is in the read set
-        if(FD_ISSET(sock,&readFdSet)){
-            signal = readSignal(); //Store messege and remotehost
+        for(i = sock;i < FD_SETSIZE;i++){
+            
+            if(FD_ISSET(i,&readFdSet)){
+                
+                signal = readSignal(i); //Store messege and remotehost
+                
+                
+                switch (stateDatabase[i]) {
+                        
+                    case WAITING + SYN:
+                        if (signal == SYN){
+                            
+                            clientSock = makeSocket();
+                            printf("\n[%d]Sending SYNACK!\n",clientSock);
+                            sendSignal(clientSock,SYN + ACK);
+                            FD_SET(clientSock,&fullFdSet);
+                            waitTimes[clientSock] = 0;
+                            stateDatabase[clientSock] = WAITING + ACK;
+                            break;
+                        }
+                        else {
+                            printf(".");
+                            break;
+                            
+                        }
+                        
+                    case WAITING + SYN + ACK:
+                        if (signal == SYN + ACK){
+                            printf("[%d]Sending ACK!\n",i);
+                            sendSignal(i,ACK);
+                            stateDatabase[i] = ESTABLISHED;
+                            printf("[%d] ESTABLISHED",i);
+                            break;
+                        }
+                        else{
+                            printf("connection timedout...\n");
+                            printf("[%d]Sending SYN!\n",i);
+                            sendSignal(i,SYN);
+                            break;
+                            
+                        }
+                        
+                    case WAITING + ACK:
+                        waitTimes[i]++;
+                        if(waitTimes[i] > NWAITS){
+                            close(i);
+                            FD_CLR(i,&fullFdSet);
+                            break;
+                        }
+                        else if (signal == ACK){
+                            printf("[%d] ESTABLISHED",i);
+                            stateDatabase[i] = ESTABLISHED;
+                            break;
+                        }
+                        else break;
+                        
+                    default:
+                        printf("NO STATE: %d\n",stateDatabase[i]);
+                        break;
+                }
+            }
         }
-        
-        switch (state) {
-                
-            case WAITING + SYN:
-                if (signal == SYN){
-                    printf("\nSending SYNACK!\n");
-                    sendSignal(SYN + ACK);
-                    waitTimes = 0;
-                    state = WAITING + ACK;
-                    break;
-                }
-                else {
-                    printf(".");
-                    break;
-                    
-                }
-                
-            case WAITING + SYN + ACK:
-                if (signal == SYN + ACK){
-                    printf("Sending ACK!\n");
-                    sendSignal(ACK);
-                    state = ESTABLISHED;
-                    break;
-                }
-                else{
-                    printf("connection timedout...\n");
-                    printf("Sending SYN!\n");
-                    sendSignal(SYN);
-                    break;
-                    
-                }
-                
-            case WAITING + ACK:
-                waitTimes++;
-                if(waitTimes > NWAITS){
-                    state = WAITING + SYN;
-                    break;
-                }
-                else if (signal == ACK){
-                    state = ESTABLISHED;
-                    break;
-                }
-                else break;
-                
-            default:
-                printf("NO STATE: %d\n",state);
-                break;
-        }
-        
     } /* End select loop */
-    
-    printf("ESTABLISHED!!!!!!!!\n");
-    getchar();
     
     return 0;
 }
@@ -182,7 +193,7 @@ int bindSocket(int socket){
     return 1;
 }
 
-int sendSignal(int signal){
+int sendSignal(int socket,int signal){
     
     struct pkt packet;
     
@@ -190,18 +201,26 @@ int sendSignal(int signal){
     
     packet.flg = signal;
     
-    if (sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost, slen)==-1)exit(EXIT_FAILURE);
+    sleep(SENDDELAY);
+    
+    if(mode == SERVER){
+        if (sendto(socket, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost, slen)==-1)exit(EXIT_FAILURE);
+    }
+    else{
+        if (sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost, slen)==-1)exit(EXIT_FAILURE);
+    }
+    
     
     return 1;
 }
 
-int readSignal(){
+int readSignal(int socket){
     
     struct pkt packet;
     
     memset((char *) &packet, 0, sizeof(packet));
     
-    recvfrom(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost,&slen);
+    recvfrom(socket, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost,&slen);
     
     return packet.flg;
     
