@@ -43,9 +43,10 @@ struct pkt{
 };
 
 int makeSocket(void);
+int newClient();
 int connectTo(char* server);
 int bindSocket(int sock);
-int readSignal(int socket);
+int readPacket(int client,struct pkt *packet);
 int sendSignal(int socket,int signal);
 int waitFor(int signal);
 int signalRecived(int signal);
