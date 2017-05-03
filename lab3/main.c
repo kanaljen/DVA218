@@ -178,8 +178,20 @@ int main(int argc, const char * argv[]) {
                             case NOSIG:
                                 break;
                                 
+                            case DATA:
+                                printf("[%d] Data recived:  %c\n",i,packet.data);
+                                
                             default:
                                 break;
+                        }
+                        
+                        if(mode == CLIENT){
+                            
+                            packet.data = 'H';
+                            
+                            packet.flg = DATA;
+                            
+                            sendto(i, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[i], slen);
                         }
                         
                         break;

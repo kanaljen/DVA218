@@ -19,7 +19,7 @@
 /* Define machine signals */
 
 #define NOSIG    0
-#define DAT      1
+#define DATA     1
 #define ACK      2
 #define SYN      4
 #define FIN      8
