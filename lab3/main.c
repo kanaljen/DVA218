@@ -22,6 +22,7 @@ int sock,socktemp;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
+int sendStream[STREAM_SIZE];
 
 int main(int argc, const char * argv[]) {
     
@@ -32,6 +33,7 @@ int main(int argc, const char * argv[]) {
     struct timeval tv;
     tv.tv_sec = TIMEOUT;
     int clientSock;
+    
     struct pkt packet;
     
     slen=sizeof(struct sockaddr_in);
@@ -83,11 +85,14 @@ int main(int argc, const char * argv[]) {
         readFdSet = fullFdSet;
         
         select(FD_SETSIZE, &readFdSet, NULL, NULL, &tv);
+
         
         // Loop ALL sockets
         for(i = sock;i < FD_SETSIZE;i++){ /* Start: ALL sockets if-statement */
             
             if(FD_ISSET(i,&fullFdSet)){ /* Start: ACTIVE sockets if-statement */
+                
+
                 
                 switch (stateDatabase[i]) { /* Start: State-machine switch */
                         
@@ -109,7 +114,7 @@ int main(int argc, const char * argv[]) {
                         
                         else {
                             
-                            printf("[%d] waiting\n",i);
+                            //printf("[%d] waiting\n",i);
 
                             
                         }
@@ -126,6 +131,7 @@ int main(int argc, const char * argv[]) {
                             stateDatabase[i] = ESTABLISHED;
                             printf("[%d] ESTABLISHED\n",i);
                             sleep(1);
+                            FD_SET(STDIN_FILENO,&fullFdSet);
                             
                         }
                         
@@ -169,30 +175,51 @@ int main(int argc, const char * argv[]) {
                     case ESTABLISHED:
                         
                         signal = readPacket(i,&packet);
+                        
+                        if(mode == CLIENT){
+                            fgets(buffer, sizeof(buffer), stdin);
+                            size_t ln = strlen(buffer)-1;
+                            if (buffer[ln] == '\n') buffer[ln] = '\0';
+                            createPacket(buffer);
+                        };
 
-                        switch (signal) {
-                            case SYN + ACK:
+                        switch (signal) { /* Start: established state-machine */
+                                
+                            case SYN + ACK: // If the client gets an extra SYNACK after established
                                 sendSignal(i,ACK);
                                 break;
                             
                             case NOSIG:
+                                
+                                break;
+                                
+                            case DATA + SYN:
+                                
+                                printf("[%d] %c",i,packet.data);
+                                
                                 break;
                                 
                             case DATA:
-                                printf("[%d] Data recived:  %c\n",i,packet.data);
+                                
+                                printf("%c",packet.data);
+                                
+                                break;
+                                
+                            case DATA + FIN:
+                                
+                                printf("%c\n",packet.data);
+                                
+                                break;
+                                
+                            case DATA + ACK:
+                                
+                                break;
                                 
                             default:
+                                
                                 break;
-                        }
-                        
-                        if(mode == CLIENT){
-                            
-                            packet.data = 'H';
-                            
-                            packet.flg = DATA;
-                            
-                            sendto(i, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[i], slen);
-                        }
+                                
+                        } /* End: established state-machine */
                         
                         break;
                         
@@ -210,6 +237,39 @@ int main(int argc, const char * argv[]) {
         }/* End: ALL sockets if-statement */
         
     } /* End: Main process-loop */
+    
+    return 0;
+}
+
+
+int createPacket(char* input){
+    
+    unsigned long len = strlen(input);
+    
+    int i;
+    
+    if(len == 0)return 0;
+    
+    struct pkt packet;
+    
+    packet.flg = DATA + SYN;
+    
+    for(i = 0;i < len;i++){
+        
+        if(i != 0)packet.flg = DATA;
+        if(i == len-1)packet.flg = DATA + FIN;
+
+        
+        packet.data = input[i];
+        
+        packet.seq = i;
+        
+        sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+        sleep(SENDDELAY);
+        
+    }
+    
+    FD_CLR(sock,&readFdSet);
     
     return 0;
 }
@@ -235,7 +295,6 @@ int newClient(){
     remotehost[clientSock].sin_port = remotehost[sock].sin_port;
     
     remotehost[clientSock].sin_addr = remotehost[sock].sin_addr;
-    
     
     printf("[%d] new client on [%d]\n",sock,clientSock);
     

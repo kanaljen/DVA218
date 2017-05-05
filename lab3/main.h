@@ -31,8 +31,10 @@
 #define ESTABLISHED     200
 
 #define NWAITS      3
-#define TIMEOUT     2
-#define SENDDELAY   1
+#define TIMEOUT     1
+#define SENDDELAY   0
+#define WINDOW_SIZE 3
+#define STREAM_SIZE 3
 
 struct pkt{
     int flg;
@@ -42,6 +44,8 @@ struct pkt{
     int chksum;
 };
 
+void flushStdin(void);
+int createPacket(char* input);
 int makeSocket(void);
 int newClient();
 int connectTo(char* server);
