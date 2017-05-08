@@ -22,7 +22,7 @@ int sock;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
-int sendStream[STREAM_SIZE];
+struct serie *head = NULL;
 
 int main(int argc, const char * argv[]) {
     
@@ -178,13 +178,13 @@ int main(int argc, const char * argv[]) {
                         
                     case ESTABLISHED:
                         
-                        signal = readPacket(i,&packet);
+                        //signal = readPacket(i,&packet);
                         
                         if(mode == CLIENT){
                             fgets(buffer, sizeof(buffer), stdin);
                             size_t ln = strlen(buffer)-1;
                             if (buffer[ln] == '\n') buffer[ln] = '\0';
-                            createPacket(buffer);
+                            if(ln>0)queueSerie(createSerie(buffer), &head);
                         };
 
                         switch (signal) { /* Start: established state-machine */
@@ -257,38 +257,25 @@ double timestamp(void){
 
 }
 
-int createPacket(char* input){
+struct serie *createSerie(char* input){
     
-    unsigned long len = strlen(input);
+    struct serie *newSerie = (struct serie*)malloc(sizeof(struct serie));
     
-    int i;
+    // Create serie-node
+    newSerie->serie = timestamp();
+    strcpy(newSerie->data, input);
+    newSerie->next = NULL;
+    newSerie->current = 0;
     
-    if(len == 0)return 0;
-    
-    struct pkt packet;
-    
-    packet.flg = DATA + SYN;
-    
-    for(i = 0;i < len;i++){
-        
-        if(i != 0)packet.flg = DATA;
-        if(i == len-1)packet.flg = DATA + FIN;
+    return newSerie;
+}
 
-        
-        packet.data = input[i];
-        
-        packet.chksum = (int)packet.data;
-        
-        packet.seq = i;
-        
-        sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
-        sleep(SENDDELAY);
-        
-    }
+void queueSerie(struct serie *newSerie,struct serie **serieHead){
     
-    FD_CLR(sock,&readFdSet);
+    if(*serieHead == NULL)*serieHead = newSerie;
+    else queueSerie(newSerie,&((*serieHead)->next));
     
-    return 0;
+
 }
 
 int makeSocket(void){

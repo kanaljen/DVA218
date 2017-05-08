@@ -33,21 +33,28 @@
 #define NWAITS      3
 #define TIMEOUT     1
 #define SENDDELAY   0
-#define WINDOW_SIZE 3
-#define STREAM_SIZE 3
+#define BUFFSIZE    512
+#define WNDSIZE     3
 
 struct pkt{
     int flg;
-    int seq;
     double serie;
-    double time;
+    int seq;
     int len;
     char data;
     int chksum;
 };
 
+struct serie{
+    double serie;
+    char data[BUFFSIZE];
+    int current;
+    struct serie *next;
+};
+
 double timestamp(void);
-int createPacket(char* input);
+struct serie *createSerie(char* input);
+void queueSerie(struct serie *newSerie,struct serie **serieHead);
 int makeSocket(void);
 int newClient();
 int connectTo(char* server);
