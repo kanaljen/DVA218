@@ -39,12 +39,14 @@
 struct pkt{
     int flg;
     int seq;
-    int wsz;
+    double serie;
+    double time;
+    int len;
     char data;
     int chksum;
 };
 
-void flushStdin(void);
+double timestamp(void);
 int createPacket(char* input);
 int makeSocket(void);
 int newClient();

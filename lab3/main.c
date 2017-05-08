@@ -18,7 +18,7 @@
 #include "main.h"
 
 struct sockaddr_in localhost, remotehost[FD_SETSIZE];
-int sock,socktemp;
+int sock;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
@@ -43,8 +43,8 @@ int main(int argc, const char * argv[]) {
     FD_ZERO(&fullFdSet);
     
     /* Select process-mode */
-    
-    printf("Select Mode: 1 for server, 2 for client:");
+    system("clear");
+    printf("Select Mode: 1 for server, 2 for client: ");
     
     FD_SET(STDIN_FILENO,&fullFdSet); // Add stdin to active set
     
@@ -66,6 +66,7 @@ int main(int argc, const char * argv[]) {
     
     if(mode == SERVER){
         
+        printf("Mode [%d]: SEVER\n\n",mode);
         bindSocket(sock);
         stateDatabase[sock] = WAITING + SYN;
         
@@ -73,14 +74,17 @@ int main(int argc, const char * argv[]) {
     
     else if(mode == CLIENT){
         
+        printf("Mode [%d]: CLIENT\n\n",mode);
         connectTo(SRV_IP);
-        printf("[%d]Sending SYN!\n",sock);
+        printf("[%d] Sending SYN!\n",sock);
         sendSignal(sock,SYN);
         stateDatabase[sock] = WAITING + SYN + ACK;
         
     }
     
     while(1){ /* Start: Main process-loop */
+        
+        FD_ZERO(&readFdSet);
         
         readFdSet = fullFdSet;
         
@@ -241,6 +245,17 @@ int main(int argc, const char * argv[]) {
     return 0;
 }
 
+double timestamp(void){
+    
+    struct timespec tp;
+    
+    clock_gettime(CLOCK_MONOTONIC, &tp);
+    
+    double timestamp = tp.tv_sec + (tp.tv_nsec*0.000000001);
+    
+    return timestamp;
+
+}
 
 int createPacket(char* input){
     
@@ -261,6 +276,8 @@ int createPacket(char* input){
 
         
         packet.data = input[i];
+        
+        packet.chksum = (int)packet.data;
         
         packet.seq = i;
         
