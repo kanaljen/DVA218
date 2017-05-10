@@ -40,6 +40,7 @@ struct pkt{
     int flg;
     double serie;
     int seq;
+    int index;
     int len;
     char data;
     int chksum;
@@ -48,7 +49,8 @@ struct pkt{
 struct serie{
     double serie;
     char data[BUFFSIZE];
-    int current;
+    int *window[WNDSIZE];   // For sender, 1: ack recived, for reciver, 1: ack sent
+    int index;              // Last send, recived and acked index. Set by reciver.
     struct serie *next;
 };
 

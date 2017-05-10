@@ -29,9 +29,12 @@ int main(int argc, const char * argv[]) {
     int signal = NOSIG, i;
     int stateDatabase[FD_SETSIZE];
     int waitTimes[FD_SETSIZE];
+    
     char buffer[512];
+    
     struct timeval tv;
     tv.tv_sec = TIMEOUT;
+    
     int clientSock;
     
     struct pkt packet;
@@ -178,7 +181,7 @@ int main(int argc, const char * argv[]) {
                         
                     case ESTABLISHED:
                         
-                        //signal = readPacket(i,&packet);
+                        signal = readPacket(i,&packet);
                         
                         if(mode == CLIENT){
                             fgets(buffer, sizeof(buffer), stdin);
@@ -243,7 +246,8 @@ int main(int argc, const char * argv[]) {
     } /* End: Main process-loop */
     
     return 0;
-}
+    
+} /* End: Main Function */
 
 double timestamp(void){
     
@@ -265,7 +269,7 @@ struct serie *createSerie(char* input){
     newSerie->serie = timestamp();
     strcpy(newSerie->data, input);
     newSerie->next = NULL;
-    newSerie->current = 0;
+    newSerie->index = -1;
     
     return newSerie;
 }
@@ -280,12 +284,17 @@ void queueSerie(struct serie *newSerie,struct serie **serieHead){
 
 int makeSocket(void){
     
-    int sock;
+    int newSocket;
+    struct timeval tv;
     
     // Create the UDP socket
-    if ((sock=socket(AF_INET, SOCK_DGRAM, 0)) < 0)exit(EXIT_FAILURE);
+    if ((newSocket=socket(AF_INET, SOCK_DGRAM, 0)) < 0)exit(EXIT_FAILURE);
     
-    return sock;
+    tv.tv_sec = 1;
+    
+    setsockopt(newSocket, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&tv,sizeof(struct timeval));
+    
+    return newSocket;
 }
 
 int newClient(){
