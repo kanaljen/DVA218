@@ -63,8 +63,6 @@ int main(int argc, const char * argv[]) {
         
     }
     
-    FD_CLR(STDIN_FILENO,&fullFdSet); // Remove stdin from active set
-    
     /* Mode specific startup */
     
     if(mode == SERVER){
@@ -72,6 +70,7 @@ int main(int argc, const char * argv[]) {
         printf("Mode [%d]: SEVER\n\n",mode);
         bindSocket(sock);
         stateDatabase[sock] = WAITING + SYN;
+        FD_CLR(STDIN_FILENO,&fullFdSet); // Remove stdin from active set
         
     }
     
@@ -92,6 +91,16 @@ int main(int argc, const char * argv[]) {
         readFdSet = fullFdSet;
         
         select(FD_SETSIZE, &readFdSet, NULL, NULL, &tv);
+        
+        if(FD_ISSET(STDIN_FILENO,&readFdSet)){
+            
+            FD_CLR(STDIN_FILENO,&readFdSet);
+            fgets(buffer, sizeof(buffer), stdin);
+            size_t ln = strlen(buffer)-1;
+            if (buffer[ln] == '\n') buffer[ln] = '\0';
+            if(ln>0)queueSerie(createSerie(buffer), &head);
+
+        };
 
         
         // Loop ALL sockets
@@ -182,13 +191,6 @@ int main(int argc, const char * argv[]) {
                     case ESTABLISHED:
                         
                         signal = readPacket(i,&packet);
-                        
-                        if(mode == CLIENT){
-                            fgets(buffer, sizeof(buffer), stdin);
-                            size_t ln = strlen(buffer)-1;
-                            if (buffer[ln] == '\n') buffer[ln] = '\0';
-                            if(ln>0)queueSerie(createSerie(buffer), &head);
-                        };
 
                         switch (signal) { /* Start: established state-machine */
                                 
