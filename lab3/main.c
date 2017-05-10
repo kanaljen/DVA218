@@ -67,10 +67,11 @@ int main(int argc, const char * argv[]) {
     
     if(mode == SERVER){
         
-        printf("Mode [%d]: SEVER\n\n",mode);
+        printf("Mode [%d]: SEVER\n",mode);
         bindSocket(sock);
         stateDatabase[sock] = WAITING + SYN;
         FD_CLR(STDIN_FILENO,&fullFdSet); // Remove stdin from active set
+        printf("waiting for connections...\n\n");
         
     }
     
@@ -78,9 +79,11 @@ int main(int argc, const char * argv[]) {
         
         printf("Mode [%d]: CLIENT\n\n",mode);
         connectTo(SRV_IP);
-        printf("[%d] Sending SYN!\n",sock);
         sendSignal(sock,SYN);
         stateDatabase[sock] = WAITING + SYN + ACK;
+        printf("\nType something and press [RETURN] to send it to the server.\n");
+        printf("Type 'quit' to close client.\n\n");
+        printf("[%d] Sending SYN!\n",sock);
         
     }
     
@@ -98,6 +101,7 @@ int main(int argc, const char * argv[]) {
             fgets(buffer, sizeof(buffer), stdin);
             size_t ln = strlen(buffer)-1;
             if (buffer[ln] == '\n') buffer[ln] = '\0';
+            if(!strcmp(buffer,"quit"))exit(EXIT_SUCCESS);
             if(ln>0)queueSerie(createSerie(buffer), &head);
 
         };
