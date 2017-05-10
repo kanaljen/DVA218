@@ -22,7 +22,7 @@ int sock;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
-struct serie *head = NULL;
+struct serie *sendHead = NULL,rcvHead[FD_SETSIZE];
 
 int main(int argc, const char * argv[]) {
     
@@ -102,7 +102,7 @@ int main(int argc, const char * argv[]) {
             size_t ln = strlen(buffer)-1;
             if (buffer[ln] == '\n') buffer[ln] = '\0';
             if(!strcmp(buffer,"quit"))exit(EXIT_SUCCESS);
-            if(ln>0)queueSerie(createSerie(buffer), &head);
+            else if(ln>0)queueSerie(createSerie(buffer), &sendHead);
 
         };
 
@@ -194,6 +194,11 @@ int main(int argc, const char * argv[]) {
                         
                     case ESTABLISHED:
                         
+                        if(sendHead != NULL){
+                            if(sendHead->index == strlen(sendHead->data)-1)sendHead = newHead(sendHead);
+                            if(sendHead != NULL)sendData(i, sendHead);
+                        }
+                        
                         signal = readPacket(i,&packet);
 
                         switch (signal) { /* Start: established state-machine */
@@ -206,21 +211,9 @@ int main(int argc, const char * argv[]) {
                                 
                                 break;
                                 
-                            case DATA + SYN:
-                                
-                                printf("[%d] %c",i,packet.data);
-                                
-                                break;
-                                
                             case DATA:
                                 
                                 printf("%c",packet.data);
-                                
-                                break;
-                                
-                            case DATA + FIN:
-                                
-                                printf("%c\n",packet.data);
                                 
                                 break;
                                 
@@ -261,10 +254,41 @@ double timestamp(void){
     
     clock_gettime(CLOCK_MONOTONIC, &tp);
     
-    double timestamp = tp.tv_sec + (tp.tv_nsec*0.000000001);
+    double timestamp = tp.tv_sec + (tp.tv_nsec*0.000000001)*1000000;
     
     return timestamp;
 
+}
+
+void sendData(int client,struct serie *serie){
+
+    int w;
+    
+    struct pkt packet;
+    
+    memset((char *) &packet, 0, sizeof(packet));
+    
+    packet.serie = serie->serie;
+    packet.flg = DATA;
+    packet.index = serie->index;
+    packet.len = (int)strlen(serie->data);
+    
+    for(w = 0;w<WNDSIZE;w++){
+        
+        if(serie->window[w] == 0){
+            
+            if(packet.index+w+1 > packet.len)break;
+            
+            packet.data = serie->data[packet.index+w+1];
+            packet.chksum = (int)packet.data;
+            packet.seq = packet.index+w+1;
+            
+            printf("seding: %d\n",packet.seq);
+            sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+            
+        }
+    }
+    
 }
 
 struct serie *createSerie(char* input){
@@ -277,6 +301,12 @@ struct serie *createSerie(char* input){
     newSerie->next = NULL;
     newSerie->index = -1;
     
+    int w;
+    
+    for(w = 0; w<WNDSIZE;w++){
+        newSerie->window[w] = 0;
+    }
+    
     return newSerie;
 }
 
@@ -284,8 +314,19 @@ void queueSerie(struct serie *newSerie,struct serie **serieHead){
     
     if(*serieHead == NULL)*serieHead = newSerie;
     else queueSerie(newSerie,&((*serieHead)->next));
-    
 
+}
+
+struct serie *newHead(struct serie *serieHead){
+    
+    if(serieHead == NULL)return NULL;
+    
+    else{
+        struct serie *temp = serieHead->next;
+        free(serieHead);
+        return temp;
+    }
+    
 }
 
 int makeSocket(void){

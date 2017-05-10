@@ -49,7 +49,7 @@ struct pkt{
 struct serie{
     double serie;
     char data[BUFFSIZE];
-    int *window[WNDSIZE];   // For sender, 1: ack recived, for reciver, 1: ack sent
+    int window[WNDSIZE];   // For sender, 1: ack recived, for reciver, 1: ack sent
     int index;              // Last send, recived and acked index. Set by reciver.
     struct serie *next;
 };
@@ -57,6 +57,8 @@ struct serie{
 double timestamp(void);
 struct serie *createSerie(char* input);
 void queueSerie(struct serie *newSerie,struct serie **serieHead);
+struct serie *newHead(struct serie *serieHead);
+void sendData(int client,struct serie *serie);
 int makeSocket(void);
 int newClient();
 int connectTo(char* server);
