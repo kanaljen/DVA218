@@ -40,25 +40,28 @@ struct pkt{
     int flg;
     double serie;
     int seq;
-    int index;
     int len;
+    int index;
     char data;
     int chksum;
 };
 
 struct serie{
-    double serie;
+    long serie;
     char data[BUFFSIZE];
+    int len;
     int window[WNDSIZE];   // For sender, 1: ack recived, for reciver, 1: ack sent
     int index;              // Last send, recived and acked index. Set by reciver.
     struct serie *next;
 };
 
-double timestamp(void);
+long timestamp(void);
 struct serie *createSerie(char* input);
 void queueSerie(struct serie *newSerie,struct serie **serieHead);
 struct serie *newHead(struct serie *serieHead);
 void sendData(int client,struct serie *serie);
+void readData(int client,struct pkt packet,struct serie *head);
+void moveWindow(int steps,struct serie *head);
 int makeSocket(void);
 int newClient();
 int connectTo(char* server);

@@ -22,7 +22,7 @@ int sock;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
-struct serie *sendHead = NULL,rcvHead[FD_SETSIZE];
+struct serie *sendHead = NULL,*rcvHead[FD_SETSIZE];
 
 int main(int argc, const char * argv[]) {
     
@@ -103,16 +103,16 @@ int main(int argc, const char * argv[]) {
             if (buffer[ln] == '\n') buffer[ln] = '\0';
             if(!strcmp(buffer,"quit"))exit(EXIT_SUCCESS);
             else if(ln>0)queueSerie(createSerie(buffer), &sendHead);
-
+            
         };
-
+        
         
         // Loop ALL sockets
         for(i = sock;i < FD_SETSIZE;i++){ /* Start: ALL sockets if-statement */
             
             if(FD_ISSET(i,&fullFdSet)){ /* Start: ACTIVE sockets if-statement */
                 
-
+                
                 
                 switch (stateDatabase[i]) { /* Start: State-machine switch */
                         
@@ -126,16 +126,16 @@ int main(int argc, const char * argv[]) {
                             
                             printf("[%d] Sending SYNACK!\n",clientSock);
                             sendSignal(clientSock,SYN + ACK);
-
+                            
                             waitTimes[clientSock] = 0;
                             stateDatabase[clientSock] = WAITING + ACK;
-    
+                            
                         }
                         
                         else {
                             
                             //printf("[%d] waiting\n",i);
-
+                            
                             
                         }
                         
@@ -187,39 +187,87 @@ int main(int argc, const char * argv[]) {
                             
                             printf("[%d] Sending new SYNACK!\n",i);
                             sendSignal(i, SYN + ACK);
-
+                            
                         }
                         
                         break;
                         
                     case ESTABLISHED:
                         
-                        if(sendHead != NULL){
-                            if(sendHead->index == strlen(sendHead->data)-1)sendHead = newHead(sendHead);
-                            if(sendHead != NULL)sendData(i, sendHead);
-                        }
+
                         
                         signal = readPacket(i,&packet);
-
+                        
                         switch (signal) { /* Start: established state-machine */
                                 
                             case SYN + ACK: // If the client gets an extra SYNACK after established
                                 sendSignal(i,ACK);
                                 break;
-                            
+                                
                             case NOSIG:
+                                
+                                if(sendHead != NULL){
+                                    if(sendHead->index == sendHead->len -1)sendHead = newHead(sendHead);
+                                    if(sendHead != NULL)sendData(i, sendHead);
+                                }
                                 
                                 break;
                                 
                             case DATA:
                                 
-                                printf("%c",packet.data);
+                                if(rcvHead[i] == NULL){  // First packet
+                                    rcvHead[i] = createSerie("");
+                                    rcvHead[i]->serie = packet.serie;
+                                    readData(i, packet, rcvHead[i]);
+                                    
+                                    if(rcvHead[i]->index == rcvHead[i]->len -1){ // Serie Complete
+                                        
+                                        printf("[%d] %s",i,rcvHead[i]->data);
+                                        rcvHead[i] = newHead(rcvHead[i]);
+                                        
+                                    }
+                                    
+                                }
+                                else if(rcvHead[i]->index == rcvHead[i]->len -1){ // New Serie
+                                    rcvHead[i] = newHead(rcvHead[i]);
+                                    rcvHead[i] = createSerie("");
+                                    rcvHead[i]->serie = packet.serie;
+                                    readData(i, packet, rcvHead[i]);
+                                }
+                                else{  // Read data to packet
+                                    readData(i, packet, rcvHead[i]);
+                                    
+                                    if(rcvHead[i]->index == rcvHead[i]->len -1){ // Serie Complete
+                                        
+                                        printf("[%d] %s",i,rcvHead[i]->data);
+                                        rcvHead[i] = newHead(rcvHead[i]);
+                                        
+                                    }
+                                    
+                                }
+                            
                                 
                                 break;
                                 
                             case DATA + ACK:
                                 
+                                if(sendHead == NULL)break;
+                                
+                                if(packet.serie == sendHead->serie){
+                                    
+                                    sendHead->window[(packet.seq - 1) - sendHead->index] = 1;
+                                    
+                                    moveWindow(packet.index - sendHead->index, sendHead);
+                                    
+                                    sendHead->index = packet.index;
+                                    
+                                    if(sendHead->index == sendHead->len -1)sendHead = newHead(sendHead);
+                                    
+                                }
+                                
+                                
                                 break;
+                                
                                 
                             default:
                                 
@@ -235,7 +283,7 @@ int main(int argc, const char * argv[]) {
                         
                         break;
                         
-                    
+                        
                 } /* End: state-machine switch */
                 
             } /* End: ACTIVE sockets if-statement */
@@ -248,7 +296,7 @@ int main(int argc, const char * argv[]) {
     
 } /* End: Main Function */
 
-double timestamp(void){
+long timestamp(void){
     
     struct timespec tp;
     
@@ -256,12 +304,14 @@ double timestamp(void){
     
     double timestamp = tp.tv_sec + (tp.tv_nsec*0.000000001)*1000000;
     
-    return timestamp;
-
+    long intstamp = (long)timestamp;
+    
+    return intstamp;
+    
 }
 
 void sendData(int client,struct serie *serie){
-
+    
     int w;
     
     struct pkt packet;
@@ -270,14 +320,14 @@ void sendData(int client,struct serie *serie){
     
     packet.serie = serie->serie;
     packet.flg = DATA;
+    packet.len = serie->len;
     packet.index = serie->index;
-    packet.len = (int)strlen(serie->data);
     
     for(w = 0;w<WNDSIZE;w++){
         
         if(serie->window[w] == 0){
             
-            if(packet.index+w+1 > packet.len)break;
+            if(packet.index+w+1 > serie->len)break;
             
             packet.data = serie->data[packet.index+w+1];
             packet.chksum = (int)packet.data;
@@ -285,8 +335,52 @@ void sendData(int client,struct serie *serie){
             
             printf("seding: %d\n",packet.seq);
             sendto(sock, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+            sleep(SENDDELAY);
             
         }
+    }
+    
+}
+
+void readData(int client,struct pkt packet,struct serie *head){
+    
+    if(packet.chksum != (int)packet.data);
+    else if (packet.serie != head->serie);
+    else if (packet.seq < head->index || packet.seq >= head->index + WNDSIZE);
+    else{
+        head->data[packet.seq] = packet.data;
+        head->len = packet.len;
+        head->window[(packet.seq - head->index) - 1] = 1;
+        packet.flg = DATA + ACK;
+        
+        int w,steps = 0;
+        
+        for(w = 0;w<WNDSIZE;w++){
+            
+            if(head->window[w] == 0)break;
+            else steps++;
+            
+        }
+        
+        moveWindow(steps,head);
+        
+        head->index = head->index + steps;
+        packet.index = head->index;
+        
+        sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[client], slen);
+        
+    }
+}
+
+void moveWindow(int steps,struct serie *head){
+    
+    int w;
+    
+    for(w = 0;w<WNDSIZE;w++){
+        
+        if(w < WNDSIZE - steps)head->window[w] = head->window[w+steps];
+        else head->window[w] = 0;
+
     }
     
 }
@@ -298,6 +392,7 @@ struct serie *createSerie(char* input){
     // Create serie-node
     newSerie->serie = timestamp();
     strcpy(newSerie->data, input);
+    newSerie->len = (int)strlen(newSerie->data);
     newSerie->next = NULL;
     newSerie->index = -1;
     
@@ -314,7 +409,7 @@ void queueSerie(struct serie *newSerie,struct serie **serieHead){
     
     if(*serieHead == NULL)*serieHead = newSerie;
     else queueSerie(newSerie,&((*serieHead)->next));
-
+    
 }
 
 struct serie *newHead(struct serie *serieHead){
@@ -436,6 +531,6 @@ int readPacket(int client,struct pkt *packet){
     }
     
     return NOSIG;
-
+    
     
 }
