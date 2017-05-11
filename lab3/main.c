@@ -29,11 +29,13 @@ int main(int argc, const char * argv[]) {
     int signal = NOSIG, i;
     int stateDatabase[FD_SETSIZE];
     int waitTimes[FD_SETSIZE];
+    int connectionState[FD_SETSIZE];
     
     char buffer[512];
     
     struct timeval tv;
-    tv.tv_sec = TIMEOUT;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
     
     int clientSock;
     
@@ -101,7 +103,10 @@ int main(int argc, const char * argv[]) {
             fgets(buffer, sizeof(buffer), stdin);
             size_t ln = strlen(buffer)-1;
             if (buffer[ln] == '\n') buffer[ln] = '\0';
-            if(!strcmp(buffer,"quit"))exit(EXIT_SUCCESS);
+            if(!strcmp(buffer,"quit")){
+                waitTimes[sock] = 0;
+                stateDatabase[sock] = WAITING + FIN +ACK;
+            }
             else if(ln>0)queueSerie(createSerie(buffer), &sendHead);
             
         };
@@ -124,18 +129,10 @@ int main(int argc, const char * argv[]) {
                             
                             clientSock = newClient();
                             
-                            printf("[%d] Sending SYNACK!\n",clientSock);
-                            sendSignal(clientSock,SYN + ACK);
-                            
                             waitTimes[clientSock] = 0;
+                            connectionState[clientSock] = 0;
+                            
                             stateDatabase[clientSock] = WAITING + ACK;
-                            
-                        }
-                        
-                        else {
-                            
-                            //printf("[%d] waiting\n",i);
-                            
                             
                         }
                         
@@ -156,8 +153,8 @@ int main(int argc, const char * argv[]) {
                         }
                         
                         else{
-                            printf("connection timedout...\n");
-                            printf("[%d]Sending SYN!\n",i);
+                            printf("[%d] connection timedout...\n",i);
+                            printf("[%d] Sending SYN!\n",i);
                             sendSignal(i,SYN);
                             
                         }
@@ -166,27 +163,55 @@ int main(int argc, const char * argv[]) {
                         
                     case WAITING + ACK:
                         
-                        waitTimes[i]++;
-                        
                         signal = readPacket(i,&packet);
                         
                         if(waitTimes[i] >= NWAITS){
                             
-                            printf("[%d] connection from client lost\n",i);
+                            if(connectionState[i] != 1){
+                                
+                                printf("[%d] connection lost\n",i);
+                                close(i);
+                                FD_CLR(i,&fullFdSet);
+                                
+                            }
+                            else{
+                                
+                                stateDatabase[i] = ESTABLISHED;
+                                
+                            }
+
+                            
+                        }
+                        else if (signal == ACK && connectionState[i] != 1){ // Connection ACK
+                            
+                            printf("[%d] ESTABLISHED\n",i);
+                            stateDatabase[i] = ESTABLISHED;
+                            connectionState[i] = 1;
+                            
+                        }
+                        
+                        else if (signal == ACK && connectionState[i] == 1){ // Disconnect ACK
+                            
+                            printf("[%d] Client disconnected\n",i);
+                            stateDatabase[i] = 0;
                             close(i);
                             FD_CLR(i,&fullFdSet);
                             
                         }
-                        else if (signal == ACK){
+                        
+                        else if (connectionState[i] == 1){
                             
-                            printf("[%d] ESTABLISHED\n",i);
-                            stateDatabase[i] = ESTABLISHED;
+                            printf("[%d] Sending FINACK!\n",i);
+                            sendSignal(i,FIN + ACK);
+                            waitTimes[i]++;
                             
                         }
+                        
                         else{
                             
-                            printf("[%d] Sending new SYNACK!\n",i);
+                            printf("[%d] Sending SYNACK!\n",i);
                             sendSignal(i, SYN + ACK);
+                            waitTimes[i]++;
                             
                         }
                         
@@ -213,6 +238,14 @@ int main(int argc, const char * argv[]) {
                                 
                                 break;
                                 
+                            case FIN:
+                                
+                                printf("[%d] Sending FINACK!\n",i);
+                                sendSignal(i, FIN + ACK);
+                                stateDatabase[i] = WAITING + ACK;
+                                waitTimes[i] = 1;
+                                break;
+                                
                             case DATA:
                                 
                                 if(rcvHead[i] == NULL){  // First packet
@@ -220,29 +253,20 @@ int main(int argc, const char * argv[]) {
                                     rcvHead[i]->serie = packet.serie;
                                     readData(i, packet, rcvHead[i]);
                                     
-                                    if(rcvHead[i]->index == rcvHead[i]->len -1){ // Serie Complete
-                                        
-                                        printf("[%d] %s",i,rcvHead[i]->data);
-                                        rcvHead[i] = newHead(rcvHead[i]);
-                                        
-                                    }
-                                    
                                 }
-                                else if(rcvHead[i]->index == rcvHead[i]->len -1){ // New Serie
-                                    rcvHead[i] = newHead(rcvHead[i]);
-                                    rcvHead[i] = createSerie("");
-                                    rcvHead[i]->serie = packet.serie;
-                                    readData(i, packet, rcvHead[i]);
-                                }
+
                                 else{  // Read data to packet
                                     readData(i, packet, rcvHead[i]);
                                     
                                     if(rcvHead[i]->index == rcvHead[i]->len -1){ // Serie Complete
                                         
-                                        printf("[%d] %s",i,rcvHead[i]->data);
+                                        printf("[%d] %s\n",i,rcvHead[i]->data);
                                         rcvHead[i] = newHead(rcvHead[i]);
                                         
+                                        
                                     }
+                                    
+
                                     
                                 }
                             
@@ -276,6 +300,28 @@ int main(int argc, const char * argv[]) {
                         } /* End: established state-machine */
                         
                         break;
+                        
+                        case WAITING + FIN + ACK:
+                        
+                        signal = readPacket(i,&packet);
+                        
+                        if(signal == FIN + ACK || waitTimes[i] >= NWAITS){
+                            
+                            printf("[%d] Sending ACK and closing!\n",i);
+                            sendSignal(i, ACK);
+                            close(sock);
+                            exit(EXIT_SUCCESS);
+                            
+                        }
+                        
+                        else{
+                            printf("[%d] Sending FIN!\n",i);
+                            sendSignal(i, FIN);
+                            waitTimes[i]++;
+                        }
+                        
+                        break;
+                    
                         
                     default:
                         
@@ -345,7 +391,7 @@ void sendData(int client,struct serie *serie){
 void readData(int client,struct pkt packet,struct serie *head){
     
     if(packet.chksum != (int)packet.data);
-    else if (packet.serie != head->serie);
+    //else if (packet.serie != head->serie);
     else if (packet.seq < head->index || packet.seq >= head->index + WNDSIZE);
     else{
         head->data[packet.seq] = packet.data;
@@ -432,7 +478,8 @@ int makeSocket(void){
     // Create the UDP socket
     if ((newSocket=socket(AF_INET, SOCK_DGRAM, 0)) < 0)exit(EXIT_FAILURE);
     
-    tv.tv_sec = 1;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100000;
     
     setsockopt(newSocket, SOL_SOCKET, SO_RCVTIMEO,(struct timeval *)&tv,sizeof(struct timeval));
     
@@ -451,7 +498,7 @@ int newClient(){
     
     remotehost[clientSock].sin_addr = remotehost[sock].sin_addr;
     
-    printf("[%d] new client on [%d]\n",sock,clientSock);
+    printf("[%d] New client on [%d]\n",sock,clientSock);
     
     FD_SET(clientSock,&fullFdSet);
     
