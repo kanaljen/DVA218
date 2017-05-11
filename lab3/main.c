@@ -103,10 +103,12 @@ int main(int argc, const char * argv[]) {
             fgets(buffer, sizeof(buffer), stdin);
             size_t ln = strlen(buffer)-1;
             if (buffer[ln] == '\n') buffer[ln] = '\0';
+            
             if(!strcmp(buffer,"quit")){
                 waitTimes[sock] = 0;
                 stateDatabase[sock] = WAITING + FIN +ACK;
             }
+            
             else if(ln>0)queueSerie(createSerie(buffer), &sendHead);
             
         };

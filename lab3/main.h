@@ -34,7 +34,7 @@
 #define TIMEOUT     1
 #define SENDDELAY   0
 #define BUFFSIZE    512
-#define WNDSIZE     3
+#define WNDSIZE     6
 
 struct pkt{
     int flg;
