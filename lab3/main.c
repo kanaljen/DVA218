@@ -393,7 +393,7 @@ void sendData(int client,struct serie *serie){
 void readData(int client,struct pkt packet,struct serie *head){
     
     if(packet.chksum != (int)packet.data);
-    //else if (packet.serie != head->serie);
+    else if (packet.serie != head->serie);
     else if (packet.seq < head->index || packet.seq >= head->index + WNDSIZE);
     else{
         head->data[packet.seq] = packet.data;

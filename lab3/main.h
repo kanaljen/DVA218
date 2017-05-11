@@ -37,21 +37,21 @@
 #define WNDSIZE     6
 
 struct pkt{
-    int flg;
-    double serie;
-    int seq;
-    int len;
-    int index;
+    int flg;                // Signal
+    long serie;             // Unique name for a serie of packets
+    int seq;                // Index of char sent
+    int len;                // Lenth of data, set by sender
+    int index;              // Highest index sent, recived and acked. Set by reciver.
     char data;
-    int chksum;
+    int chksum;             // int = (int)char
 };
 
 struct serie{
-    long serie;
+    long serie;             // Unique name for a serie of packets
     char data[BUFFSIZE];
-    int len;
-    int window[WNDSIZE];   // For sender, 1: ack recived, for reciver, 1: ack sent
-    int index;              // Last send, recived and acked index. Set by reciver.
+    int len;                // Lenth of data, set by sender
+    int window[WNDSIZE];    // For sender, 1: ack recived, for reciver, 1: ack sent
+    int index;              // Highest index sent, recived and acked. Set by reciver.
     struct serie *next;
 };
 
