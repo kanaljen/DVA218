@@ -31,12 +31,12 @@ struct serie *rcvHead[FD_SETSIZE];
 
 int main(int argc, const char * argv[]) {
     
-    int signal = NOSIG, i, k = 0;
+    int signal = NOSIG, i;
     int stateDatabase[FD_SETSIZE];
     int waitTimes[FD_SETSIZE];
     int connectionState[FD_SETSIZE];
     struct serie *newSerie;
-    struct serie *sendHead = NULL;
+    struct serie **sendHead = NULL;
     
     char buffer[512];
     
@@ -61,7 +61,7 @@ int main(int argc, const char * argv[]) {
     FD_SET(STDIN_FILENO,&fullFdSet); // Add stdin to active set
     
     while((mode != SERVER)&&(mode != CLIENT)){
-        //select(FD_SETSIZE, &fullFdSet, NULL, NULL, NULL);
+        
         fgets(buffer, sizeof(buffer), stdin);
         size_t ln = strlen(buffer)-1;
         if (buffer[ln] == '\n') buffer[ln] = '\0';
@@ -105,28 +105,33 @@ int main(int argc, const char * argv[]) {
         
         select(FD_SETSIZE, &readFdSet, NULL, NULL, &tv);
         
-        //  if(FD_ISSET(STDIN_FILENO,&readFdSet) && k == 0){
-        if(k == 1 && mode == CLIENT){
+        if(FD_ISSET(STDIN_FILENO,&readFdSet)){
             
-            FD_CLR(STDIN_FILENO,&readFdSet);
-            fgets(buffer, sizeof(buffer), stdin);
-            if(!strcmp(buffer,"quit")){
-                waitTimes[sock] = 0;
-                stateDatabase[sock] = WAITING + FIN +ACK;
+            if(mode == CLIENT){
+                
+                FD_CLR(STDIN_FILENO,&readFdSet);
+                fgets(buffer, sizeof(buffer), stdin);
+                if(!strcmp(buffer,"quit")){
+                    waitTimes[sock] = 0;
+                    stateDatabase[sock] = WAITING + FIN +ACK;
+                }
+                else{
+                    int ln = (int)strlen(buffer)-1;
+                    if (buffer[ln] == '\n')
+                        buffer[ln] = '\0';
+                    if(ln>0){
+                        newSerie = createSerie(buffer, packet);
+                        queueSerie(newSerie, sendHead);
+                        printf("DETTA SKREV JAG IN: %s\n", (*sendHead)->data);
+                        printf("Längd = %d \n", (*sendHead)->len);
+                        sendData(sock, *sendHead);
+                        printf("HEAD LPS EFTER FÖRSTA SÄNDNINGEN = %d\n", (*sendHead)->LPS);
+                        
+                    }
+                    
+                }
+                
             }
-            int ln = (int)strlen(buffer)-1;
-            if (buffer[ln] == '\n')
-                buffer[ln] = '\0';
-            if(ln>0){
-                newSerie = createSerie(buffer, packet);
-                queueSerie(newSerie, &sendHead);
-                printf("DETTA SKREV JAG IN: %s\n", sendHead->data);
-                printf("Längd = %d \n", sendHead->len);
-                sendData(sock, sendHead);
-                k ++;
-                printf("HEAD LPS EFTER FÖRSTA SÄNDNINGEN = %d\n", sendHead->LPS);
-            }
-            
         }
         
         
@@ -166,7 +171,7 @@ int main(int argc, const char * argv[]) {
                             stateDatabase[i] = ESTABLISHED;
                             printf("[%d] ESTABLISHED\n",i);
                             sleep(1);
-                            //FD_SET(STDIN_FILENO,&fullFdSet);
+                            FD_SET(STDIN_FILENO,&fullFdSet);
                             
                         }
                         
@@ -237,7 +242,6 @@ int main(int argc, const char * argv[]) {
                         break;
                         
                     case ESTABLISHED:
-                        k++;
                         
                         
                         signal = readPacket(i,packet);
@@ -246,14 +250,13 @@ int main(int argc, const char * argv[]) {
                                 
                             case SYN + ACK: // If the client gets an extra SYNACK after established
                                 sendSignal(i,ACK);
-                                k++;
                                 break;
                                 
                             case NOSIG:
                                 
                                 if(sendHead != NULL){
-                                    if(sendHead->hAI == sendHead->len){
-                                        newHead(&sendHead);
+                                    if((*sendHead)->hAI == (*sendHead)->len){
+                                        newHead(sendHead);
                                         printf("Newhead i NOSIG\n");
                                     }
                                     //if(sendHead != NULL)sendData(i, sendHead);
@@ -300,24 +303,24 @@ int main(int argc, const char * argv[]) {
                                     break;
                                 }
                                 
-                                if(packet->serie == sendHead->serie){
+                                if(packet->serie == (*sendHead)->serie){
                                     
-                                    sendHead->window[(packet->seq) % FULLWINDOW] = ACKED;
-                                    if(packet->seq == sendHead->len){
+                                    (*sendHead)->window[(packet->seq) % FULLWINDOW] = ACKED;
+                                    if(packet->seq == (*sendHead)->len){
                                         if(packet->hAI == (packet->seq % FULLWINDOW)){
                                             printf("NEWHEAD\n");
-                                            newHead(&sendHead);
+                                            newHead(sendHead);
                                             break;
                                         }
                                         else{
                                             printf("Sending data because all data aint Acked... seq = %d hAI = %d\n", packet->seq, packet->hAI);
-                                            sendData(sock, sendHead);
+                                            sendData(sock, *sendHead);
                                         }
                                     }
-                                    if(packet->seq == sendHead->LPS - WNDSIZE + 1){
-                                        moveWindow(sendHead);
+                                    if(packet->seq == (*sendHead)->LPS - WNDSIZE + 1){
+                                        moveWindow(*sendHead);
                                         printf("ska skicka next index\n");
-                                        sendNextIndex(sock, &sendHead);
+                                        sendNextIndex(sock, sendHead);
                                     }
                                     
                                     else{
@@ -483,7 +486,7 @@ void ackData(int client, struct pkt packet, struct serie *head){
 
 void readData(int client,struct pkt packet,struct serie *head){
     
-    if(!((packet.chksum == checksum(packet)) && (packet.serie == head->serie))){
+    if(!((packet.chksum == checksum(packet)))){ //&& (packet.serie == head->serie))){
         printf("Wrong checksum or serie...\n");
         return;
     }
@@ -558,8 +561,11 @@ void newHead(struct serie **serieHead){
     
     struct serie *serieToRemove = *serieHead;
     
-    if((*serieHead)->next == NULL)
+    if(*serieHead == NULL)return;
+    
+    else if((*serieHead)->next == NULL)
         free(serieToRemove);
+    
     else{
         *serieHead = (*serieHead)->next;
         free(serieToRemove);
