@@ -392,9 +392,9 @@ void sendData(int client,struct serie *serie){
 
 void readData(int client,struct pkt packet,struct serie *head){
     
-    if(packet.chksum != (int)packet.data);
-    else if (packet.serie != head->serie);
-    else if (packet.seq < head->index || packet.seq >= head->index + WNDSIZE);
+    if(packet.chksum != (int)packet.data); // Checksum error
+    else if (packet.serie != head->serie); // Serie error
+    else if (packet.seq < head->index || packet.seq >= head->index + WNDSIZE); // Outside window
     else{
         head->data[packet.seq] = packet.data;
         head->len = packet.len;
