@@ -27,7 +27,7 @@ int sock;
 socklen_t slen;
 fd_set readFdSet, fullFdSet;
 int mode = 0;
-struct serie *rcvHead[FD_SETSIZE];
+int randomMode = 0;
 
 int main(int argc, const char * argv[]) {
     
@@ -35,10 +35,13 @@ int main(int argc, const char * argv[]) {
     int stateDatabase[FD_SETSIZE];
     int waitTimes[FD_SETSIZE];
     int connectionState[FD_SETSIZE];
+    struct head *sendHead = calloc(1, sizeof(struct head));
+    sendHead->first = NULL;
+    struct serie *rcvHead[FD_SETSIZE];
     struct serie *newSerie;
-    struct serie **sendHead = NULL;
-    
+    //srand(time(NULL));
     char buffer[512];
+    long lastSerie = 0;
     
     struct timeval tv;
     tv.tv_sec = 0;
@@ -75,7 +78,7 @@ int main(int argc, const char * argv[]) {
     
     if(mode == SERVER){
         
-        printf("Mode [%d]: SEVER\n",mode);
+        printf("Mode [%d]: SERVER\n",mode);
         bindSocket(sock);
         stateDatabase[sock] = WAITING + SYN;
         FD_CLR(STDIN_FILENO,&fullFdSet); // Remove stdin from active set
@@ -86,9 +89,15 @@ int main(int argc, const char * argv[]) {
     else if(mode == CLIENT){
         
         printf("Mode [%d]: CLIENT\n\n",mode);
+        printf("Do you want errors? 1=y\n");
+        fgets(buffer, sizeof(buffer), stdin);
+        randomMode = atoi(buffer);
         connectTo(SRV_IP);
         sendSignal(sock,SYN);
+        //if(mode == CLIENT)
         stateDatabase[sock] = WAITING + SYN + ACK;
+        //else
+        //    stateDatabase[sock] = 100 + rand() % 15; // error example
         printf("\nType something and press [RETURN] to send it to the server.\n");
         printf("Type 'quit' to close client.\n\n");
         printf("[%d] Sending SYN!\n",sock);
@@ -96,6 +105,10 @@ int main(int argc, const char * argv[]) {
     }
     
     while(1){ /* Start: Main process-loop */
+        
+        memset(buffer,0,sizeof(buffer));
+        
+        srand(time(NULL));
         
         FD_ZERO(&readFdSet);
         
@@ -110,25 +123,21 @@ int main(int argc, const char * argv[]) {
             if(mode == CLIENT){
                 
                 FD_CLR(STDIN_FILENO,&readFdSet);
-                fgets(buffer, sizeof(buffer), stdin);
-                if(!strcmp(buffer,"quit")){
-                    waitTimes[sock] = 0;
-                    stateDatabase[sock] = WAITING + FIN +ACK;
+                fgets(buffer, sizeof(buffer), stdin); // takes input from stdin
+                int ln = (int)strlen(buffer)-1;
+                if (buffer[ln] == '\n') // sets Return to '\0'
+                    buffer[ln] = '\0';
+                if(!strcmp(buffer,"quit")){ //type "quit" to disconnect
+                    waitTimes[sock] = 0; // resend n times
+                    stateDatabase[sock] = WAITING + FIN +ACK; //sets state to "waiting for fin-ack"
                 }
                 else{
-                    int ln = (int)strlen(buffer)-1;
-                    if (buffer[ln] == '\n')
-                        buffer[ln] = '\0';
                     if(ln>0){
                         newSerie = createSerie(buffer, packet);
-                        queueSerie(newSerie, sendHead);
-                        printf("DETTA SKREV JAG IN: %s\n", (*sendHead)->data);
-                        printf("Längd = %d \n", (*sendHead)->len);
-                        sendData(sock, *sendHead);
-                        printf("HEAD LPS EFTER FÖRSTA SÄNDNINGEN = %d\n", (*sendHead)->LPS);
-                        
+                        printf("Serie Created\n");
+                        sendHead->first = queueSerie(newSerie, sendHead->first); //queues the new serie in the list
+                        printf("Queue made\n");
                     }
-                    
                 }
                 
             }
@@ -146,26 +155,26 @@ int main(int argc, const char * argv[]) {
                         
                     case WAITING + SYN: // Main server state
                         
-                        signal = readPacket(i,packet);
+                        signal = readPacket(i,packet); //recieves a signal from client
                         
                         if (signal == SYN){
                             
                             clientSock = newClient();
                             
                             waitTimes[clientSock] = 0;
-                            connectionState[clientSock] = 0;
+                            connectionState[clientSock] = DISCONNECTED; //still no connection
                             
-                            stateDatabase[clientSock] = WAITING + ACK;
+                            stateDatabase[clientSock] = WAITING + ACK; //server waiting for acknowledge
                             
                         }
                         
                         break;
                         
-                    case WAITING + SYN + ACK:
+                    case WAITING + SYN + ACK: // client waiting for syn-ack
                         
                         signal = readPacket(i,packet);
                         
-                        if (signal == SYN + ACK){
+                        if (signal == SYN + ACK){ // if syn-ack recieved, send ack and we are connected
                             printf("[%d] Sending ACK!\n",i);
                             sendSignal(i,ACK);
                             stateDatabase[i] = ESTABLISHED;
@@ -175,7 +184,7 @@ int main(int argc, const char * argv[]) {
                             
                         }
                         
-                        else{
+                        else{ // re-send a syn
                             printf("[%d] connection timedout...\n",i);
                             printf("[%d] Sending SYN!\n",i);
                             sendSignal(i,SYN);
@@ -188,16 +197,16 @@ int main(int argc, const char * argv[]) {
                         
                         signal = readPacket(i,packet);
                         
-                        if(waitTimes[i] >= NWAITS){
+                        if(waitTimes[i] >= NWAITS){ // if n times re-send, go back to previous state (server)
                             
-                            if(connectionState[i] != 1){
+                            if(connectionState[i] != CONNECTED){ // client is not connected
                                 
                                 printf("[%d] connection lost\n",i);
                                 close(i);
                                 FD_CLR(i,&fullFdSet);
                                 
                             }
-                            else{
+                            else{ // client is not disconnected
                                 
                                 stateDatabase[i] = ESTABLISHED;
                                 
@@ -205,15 +214,15 @@ int main(int argc, const char * argv[]) {
                             
                             
                         }
-                        else if (signal == ACK && connectionState[i] != 1){ // Connection ACK
+                        else if (signal == ACK && connectionState[i] == DISCONNECTED){ // Connection ACK
                             
                             printf("[%d] ESTABLISHED\n",i);
                             stateDatabase[i] = ESTABLISHED;
-                            connectionState[i] = 1;
+                            connectionState[i] = CONNECTED;
                             
                         }
                         
-                        else if (signal == ACK && connectionState[i] == 1){ // Disconnect ACK
+                        else if (signal == ACK && connectionState[i] == CONNECTED){ // Disconnect ACK
                             
                             printf("[%d] Client disconnected\n",i);
                             stateDatabase[i] = 0;
@@ -222,15 +231,16 @@ int main(int argc, const char * argv[]) {
                             
                         }
                         
-                        else if (connectionState[i] == 1){
+                        else if (connectionState[i] == CONNECTED){ // re-send a fin-ack
                             
                             printf("[%d] Sending FINACK!\n",i);
                             sendSignal(i,FIN + ACK);
                             waitTimes[i]++;
+                            sleep(2);
                             
                         }
                         
-                        else{
+                        else{ // re-send a syn-ack
                             
                             printf("[%d] Sending SYNACK!\n",i);
                             sendSignal(i, SYN + ACK);
@@ -244,7 +254,7 @@ int main(int argc, const char * argv[]) {
                     case ESTABLISHED:
                         
                         
-                        signal = readPacket(i,packet);
+                        signal = readPacket(i,packet); // recieves the signal for a packet
                         
                         switch (signal) { /* Start: established state-machine */
                                 
@@ -254,17 +264,22 @@ int main(int argc, const char * argv[]) {
                                 
                             case NOSIG:
                                 
-                                if(sendHead != NULL){
-                                    if((*sendHead)->hAI == (*sendHead)->len){
-                                        newHead(sendHead);
-                                        printf("Newhead i NOSIG\n");
+                                if(mode == CLIENT){
+                                    if(sendHead->first != NULL){
+                                        if(sendHead->first->LPS == sendHead->first->len){ // if all data is sent, requeue the list with newHead()
+                                            if(sendHead->first->hAI == (sendHead->first->len % FULLWINDOW))
+                                                sendHead->first = newHead(sendHead->first);
+                                            else
+                                                sendData(sock, sendHead->first); // if timeout, send all data in the window, which is not acknowledged
+                                        }
+                                        else
+                                            sendData(sock, sendHead->first); // if timeout, send all data in the window, which is not acknowledged
                                     }
-                                    //if(sendHead != NULL)sendData(i, sendHead);
                                 }
                                 
                                 break;
                                 
-                            case FIN:
+                            case FIN: // fin recieved. server sends a fin-ack and puts state to waiting for ack
                                 
                                 printf("[%d] Sending FINACK!\n",i);
                                 sendSignal(i, FIN + ACK);
@@ -272,102 +287,100 @@ int main(int argc, const char * argv[]) {
                                 waitTimes[i] = 1;
                                 break;
                                 
-                            case DATA:
-                                
-                                if(rcvHead[i] == NULL)  // First packet
-                                    rcvHead[i] = createSerie(NULL, packet);
-                                readData(i, *packet, rcvHead[i]);
-                                
-                                printf("Sending ack with seq: %d hAI: %d\n", packet->seq, rcvHead[i]->hAI);
-                                
-                                printf("Mottaget: %c\n", packet->data);
-                                
-                                if(packet->seq == rcvHead[i]->len){ // Serie Complete
-                                    
-                                    printf("[%d] NEWHEAD %s\n",i,rcvHead[i]->data);
-                                    newHead(&(rcvHead[i]));
-                                }
-                                printf("Mottaget hittills: %s\n", rcvHead[i]->data);
-                                
-                                
-                                
-                                
-                                
-                                
-                                break;
-                                
-                            case DATA + ACK:
-                                printf("har fått in en ack, packet hai = %d\n", packet->hAI);
-                                if(sendHead == NULL){
-                                    printf("SLUT\n");
+                            case DATA: // data recieved
+                                if(packet->serie == lastSerie){
+                                    packet->flg = DATA + ACK;
+                                    packet->serie = lastSerie;
+                                    sendto(i, (void*)packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[i], slen);
                                     break;
                                 }
                                 
-                                if(packet->serie == (*sendHead)->serie){
+                                if(rcvHead[i] == NULL){  // First packet
+                                    newSerie = createSerie(NULL, packet);
+                                    rcvHead[i] = newSerie;
+                                }
+                                readData(i, *packet, rcvHead[i]); // stores data and sends an acknowledge
+                                
+                                printf("[%d] Recieved: #%d (%c)\n", i, packet->seq,packet->data);
+                                if(packet->seq >= rcvHead[i]->len){
+                                    if(rcvHead[i]->hAI == rcvHead[i]->len % FULLWINDOW){ // Serie Complete
+                                        printf("[%d] Recieved message: %s\n",i,rcvHead[i]->data);
+                                        lastSerie = rcvHead[i]->serie;
+                                        rcvHead[i] = newHead(rcvHead[i]); // clear the serie
+                                    }
+                                }
+                                
+                                break;
+                                
+                            case DATA + ACK: // client recieves an acknowledge for some data
+                                if(sendHead->first == NULL){ // already sent all data and got them acknowledged
+                                    printf("Nothing to recieve\n");
+                                    break;
+                                }
+                                printf("#%d acknowledged (%c)\n", packet->seq, packet->data);
+                                if(packet->serie == sendHead->first->serie){ // checks if it is the right serie
                                     
-                                    (*sendHead)->window[(packet->seq) % FULLWINDOW] = ACKED;
-                                    if(packet->seq == (*sendHead)->len){
-                                        if(packet->hAI == (packet->seq % FULLWINDOW)){
-                                            printf("NEWHEAD\n");
-                                            newHead(sendHead);
+                                    sendHead->first->window[(packet->seq) % FULLWINDOW] = ACKED; // acknowledges the data
+                                    
+                                    if(sendHead->first->LPS == sendHead->first->len){ // if the last data are acknowledged
+                                        if(packet->hAI == (sendHead->first->len % FULLWINDOW)){ // if all data are acknowledged
+                                            moveWindow(sendHead->first); // reset window
+                                            sendHead->first = newHead(sendHead->first); // requeues the series
                                             break;
                                         }
-                                        else{
-                                            printf("Sending data because all data aint Acked... seq = %d hAI = %d\n", packet->seq, packet->hAI);
-                                            sendData(sock, *sendHead);
-                                        }
                                     }
-                                    if(packet->seq == (*sendHead)->LPS - WNDSIZE + 1){
-                                        moveWindow(*sendHead);
-                                        printf("ska skicka next index\n");
-                                        sendNextIndex(sock, sendHead);
+                                    if(packet->seq == sendHead->first->LPS - WNDSIZE + 1){ // if the next expected acknowledge is recieved, send the next sequence in line
+                                        moveWindow(sendHead->first);
+                                        sendNextIndex(sock, &(sendHead->first));
                                     }
-                                    
-                                    else{
-                                        printf("Fel paket ackat\n");
-                                    }
+                                    else if(sendHead->first->LPS != sendHead->first->len)
+                                        sendData(sock, sendHead->first); // re-sends the data which are not acknowledged, because they are probably lost
                                     
                                 }
                                 else
                                     printf("Wrong serie-number\n");
-                                
                                 
                                 break;
                                 
                                 
                             default:
                                 
-                                break;
                                 
                                 break;
                                 
-                            case WAITING + FIN + ACK:
-                                
-                                signal = readPacket(i,packet);
-                                
-                                if(signal == FIN + ACK || waitTimes[i] >= NWAITS){
-                                    
-                                    printf("[%d] Sending ACK and closing!\n",i);
-                                    sendSignal(i, ACK);
-                                    close(sock);
-                                    exit(EXIT_SUCCESS);
-                                    
-                                }
-                                
-                                else{
-                                    printf("[%d] Sending FIN!\n",i);
-                                    sendSignal(i, FIN);
-                                    waitTimes[i]++;
-                                }
-                                
-                                break;
                         } /* End: established state-machine */
+                        
+                        break;
+                        
+                    case WAITING + FIN + ACK: // client wating for fin-ack to close down
+                        
+                        signal = readPacket(i,packet);
+                        
+                        if(signal == FIN + ACK || waitTimes[i] >= NWAITS){ // if waited n times, send ack and close down
+                            
+                            printf("[%d] Sending ACK and closing!\n",i);
+                            sendSignal(i, ACK);
+                            sleep(SENDDELAY);
+                            sendSignal(i, ACK); // sends a second ack, just to make sure that the server got it
+                            free(sendHead);
+                            free(packet);
+                            close(sock);
+                            exit(EXIT_SUCCESS);
+                            
+                        }
+                        
+                        else{ // resend a fin-ack
+                            printf("[%d] Sending FIN!\n",i);
+                            sendSignal(i, FIN);
+                            waitTimes[i]++;
+                            sleep(SENDDELAY);
+                        }
                         
                         break;
                         
                     default:
                         
-                        printf("[%d] NO STATE: %d\n",i,stateDatabase[i]);
+                        printf("[%d] NO STATE: %d\n",i,stateDatabase[i]); // no state
                         sleep(2);
                         
                         break;
@@ -390,8 +403,13 @@ int main(int argc, const char * argv[]) {
 int checksum(struct pkt packet){
     
     int checksum;
+    /*
+    if(randomMode == 1)
+        checksum = ((int)packet.data * packet.seq) + packet.len + (rand() % 2);
+    else
+     */
     
-    checksum = (int)packet.data;
+    checksum = ((int)packet.data * packet.seq) + packet.len;
     
     return checksum;
     
@@ -413,48 +431,48 @@ long timestamp(void){
 
 int withinWindow(int seq, struct serie *head){
     
-    if(((seq % FULLWINDOW) > head->hAI) && ((seq % FULLWINDOW) <= head->hAI + WNDSIZE)){
-        printf("Within window first criteria\n");
+    if((seq % FULLWINDOW) > head->hAI && (seq % FULLWINDOW) <= head->hAI + WNDSIZE){ // if the sliding window is "closed" (first place has a lower index than the last place)
         return 1;
     }
-    else if(head->hAI > (head->hAI + WNDSIZE) % FULLWINDOW){
-        if(((seq % FULLWINDOW) <= head->hAI) && ((seq % FULLWINDOW) > (head->hAI + WNDSIZE) % FULLWINDOW)){
-            printf("Not within window\n");
+    else if(head->hAI > (head->hAI + WNDSIZE) % FULLWINDOW){ // if the sliding window is located around the 0 index (first place has a higher index than the last place)
+        if(((seq % FULLWINDOW) <= head->hAI) && ((seq % FULLWINDOW) > (head->hAI + WNDSIZE) % FULLWINDOW)){ // if it is outside of the sliding window
             return 0;
         }
         else{
-            printf("Within window second criteria\n");
             return 1;
         }
     }
-    printf("Not within window\n");
     return 0;
 }
 
 void sendNextIndex(int client, struct serie **head){
     
+    if((*head)->LPS == (*head)->len) // if the last data in line is sent
+        return;
     struct pkt packet;
-    printf("LPS innan = %d\n", (*head)->LPS);
     packet.serie = (*head)->serie;
     packet.flg = DATA;
     packet.len = (*head)->len;
-    packet.seq = (*head)->LPS + 1;
-    packet.data = (*head)->data[packet.seq];
+    if(randomMode == 1)
+        packet.seq = (*head)->LPS + (rand() % 2);
+    else
+        packet.seq = (*head)->LPS + 1; // send the next data in line
+    packet.data = (*head)->data[packet.seq]; // send the next data in line
     packet.chksum = checksum(packet);
     
-    (*head)->LPS = packet.seq;
-    
-    printf("sending in sendNextIndex: %d data = %c LPS = %d\n",packet.seq, packet.data, (*head)->LPS);
+    printf("sending #%d (%c)\n",packet.seq, packet.data);
     sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
-    printf("skickad\n");
+    
+    (*head)->LPS = packet.seq; // sets the highest sequence sent
+    
     sleep(SENDDELAY);
-    if(withinWindow((*head)->LPS + 1, *head))
+    if(withinWindow((*head)->LPS + 1, *head)) // if there are room in the sliding window to send more data
         sendNextIndex(client, head);
 }
 
 void sendData(int client,struct serie *head){
     
-    int w;
+    int w, firstTime;
     
     struct pkt packet;
     
@@ -462,18 +480,35 @@ void sendData(int client,struct serie *head){
     packet.flg = DATA;
     packet.len = head->len;
     
+    if(head->LPS == -1) // just for the first time the client sends, to fill up the sliding window
+        firstTime = WNDSIZE;
+    else
+        firstTime = 0;
+    
     for(w = 1;w <= WNDSIZE;w++){
-        
-        if(head->window[(head->hAI + w) % FULLWINDOW] == NONACKED){
-            packet.seq = head->LPS - WNDSIZE + w;
+        if(head->window[(head->hAI + w) % FULLWINDOW] == NONACKED){ // if data is not acknowledged, send it
+            packet.seq = head->LPS - WNDSIZE + w + firstTime; // firstTime is here to fill up the sliding window the first time the client sends
+            if(packet.seq > head->len) // if the sequence is outside our data
+                break;
             packet.data = head->data[packet.seq];
             packet.chksum = checksum(packet);
-            printf("sending in senddata: %d\n",packet.seq);
-            sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+            printf("sending #%d (%c)\n",packet.seq, packet.data);
+            
+            if(randomMode == 1){
+                if ((rand() % 2) == 0)printf("lost #%d (%c)\n",packet.seq, packet.data);
+                else sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+                
+            }
+            else sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[sock], slen);
+            
             sleep(SENDDELAY);
-            if(head->LPS < packet.seq)
-                head->LPS = packet.seq;
         }
+    }
+    if(head->LPS < packet.seq){
+        if(packet.seq < head->len)
+            head->LPS = packet.seq; // sets the highest sequence sent
+        else
+            head->LPS = head->len;
     }
 }
 
@@ -486,19 +521,25 @@ void ackData(int client, struct pkt packet, struct serie *head){
 
 void readData(int client,struct pkt packet,struct serie *head){
     
-    if(!((packet.chksum == checksum(packet)))){ //&& (packet.serie == head->serie))){
+    if(packet.chksum != checksum(packet) || packet.serie != head->serie){
         printf("Wrong checksum or serie...\n");
         return;
     }
     
-    if(withinWindow(packet.seq, head)){
-        head->data[packet.seq] = packet.data;
-        head->window[packet.seq % FULLWINDOW] = ACKED;
-        moveWindow(head);
+    if(packet.seq > head->len)
+        return;
+    if(head->window[packet.seq % FULLWINDOW] != ACKED){
+        if(withinWindow(packet.seq, head)){ // if data is within window, acknowledge and store it
+            head->data[packet.seq] = packet.data;
+            head->window[packet.seq % FULLWINDOW] = ACKED;
+            moveWindow(head);
+            ackData(client, packet, head);
+        }
+    }
+    else{ // else just send an acknowledge. we have probably already got it
+        printf("Outside window\n");
         ackData(client, packet, head);
     }
-    else
-        printf("Outside window\n");
     
 }
 
@@ -507,68 +548,60 @@ void moveWindow(struct serie *head){
     if(head->window[(head->hAI + 1) % FULLWINDOW] == NONACKED)
         return;
     
-    head->hAI = (head->hAI + 1) % FULLWINDOW;
+    head->hAI = (head->hAI + 1) % FULLWINDOW; // moves the sliding window
     
-    head->window[head->hAI] = NONACKED;
-    
-    printf("HeadHai = %d\n", head->hAI);
+    head->window[head->hAI] = NONACKED; // puts the places outside the window to not acknowledged
     
     moveWindow(head);
     
 }
 
-/*void moveWindowSender(struct serie *head){
- 
- if(sendHead->window[sendHead->hAI] == ACKED)
- 
- 
- }*/
-
 struct serie *createSerie(char* input, struct pkt *packet){
     
     struct serie *newSerie = (struct serie*)malloc(sizeof(struct serie));
-    // Create serie-node
+    
     if(mode == CLIENT){
         newSerie->serie = timestamp();
-        strcpy(newSerie->data, input);
+        strcpy(newSerie->data, input); // stores the input until everything is sent
         newSerie->len = (int)strlen(newSerie->data) - 1;
-        newSerie->LPS = 0;
+        newSerie->LPS = -1;
     }
     else{
-        newSerie->len = packet->len;
-        newSerie->serie = packet->serie;
+        memset(newSerie->data,0,sizeof(newSerie->data));
+        newSerie->len = packet->len; // sets the length it will eventually recieve
+        newSerie->serie = packet->serie; // sets the name of the serie
     }
     newSerie->next = NULL;
     newSerie->hAI = -1;
-    printf("HEad->hai i createSerie = %d\n", newSerie->hAI);
-    //int w;
     
-    /*  for(w = 0; w<FULLWINDOW;w++){
-     newSerie->window[w] = NONACKED;
-     }*/
-    printf("HEad->hai i createSerie = %d\n", newSerie->hAI);
     return newSerie;
 }
 
-void queueSerie(struct serie *newSerie,struct serie **serieHead){
+struct serie *queueSerie(struct serie *newSerie,struct serie *serieHead){
     
-    if(*serieHead == NULL)*serieHead = newSerie;
-    else queueSerie(newSerie,&((*serieHead)->next));
+    if(serieHead == NULL){ // if last in line
+        return newSerie;
+    }
+    else
+        serieHead->next = queueSerie(newSerie, serieHead->next); // puts the new serie last in line
+    return serieHead;
     
 }
 
-void newHead(struct serie **serieHead){
+struct serie *newHead(struct serie *serieHead){
     
-    struct serie *serieToRemove = *serieHead;
+    struct serie *serieToRemove = serieHead;
     
-    if(*serieHead == NULL)return;
+    if(serieHead == NULL){ // if the last serie
+        return NULL;
+    }
     
-    else if((*serieHead)->next == NULL)
+    else{ // requeue the next serie to first in line
+        serieHead = serieHead->next;
         free(serieToRemove);
-    
-    else{
-        *serieHead = (*serieHead)->next;
-        free(serieToRemove);
+        if(serieHead == NULL)
+            return NULL;
+        return serieHead;
     }
     
 }
@@ -589,7 +622,7 @@ int makeSocket(void){
     return newSocket;
 }
 
-int newClient(){
+int newClient(){ // sets the parameters to the connecting client
     
     int clientSock;
     
@@ -609,7 +642,7 @@ int newClient(){
     
 }
 
-int connectTo(char* server){
+int connectTo(char* server){ // puts the parameters to connect to server
     
     memset((char *) &remotehost, 0, sizeof(struct sockaddr_in));
     
@@ -651,8 +684,6 @@ int sendSignal(int client,int signal){
     memset((char *) &packet, 0, sizeof(packet));
     
     packet.flg = signal;
-    
-    sleep(SENDDELAY);
     
     if(mode == SERVER){
         if (sendto(client, (void*)&packet, sizeof(struct pkt), 0, (struct sockaddr*)&remotehost[client], slen)==-1)exit(EXIT_FAILURE);
